@@ -6,74 +6,70 @@ import numpy as np
 from PIL import Image
 
 
-Image.MAX_IMAGE_PIXELS = None 
-def read_tif_file(image_file_path,new_size):
-    namee = os.path.splitext(os.path.basename(image_file_path))[0]
+Image.MAX_IMAGE_PIXELS = None
+def read_tif_file(image_file_path):
     image = Image.open(image_file_path)
-    new_image = image.resize(new_size)
-    image_data = np.array(new_image)
-    
-    new_img = Image.fromarray(image_data)
-    new_img.save(f"cropped_{namee}.tif")
-    print("resized img shape",image_data.shape)
+    image_data = np.array(image)
     rgb_image = image_data[:, :, :3]
     img_array = np.moveaxis(rgb_image, 0, 2)
     img_array = np.uint8(rgb_image)
     return img_array
 
 
-def patch_(image_file_path, patch_size, patch_files_dir_path,new_size):
+def patch_(image_file_path, patch_size, patch_files_dir_path):
     name = os.path.splitext(os.path.basename(image_file_path))[0]
-    # os.makedirs(patch_files_dir_path, exist_ok=True)
-    image_array = read_tif_file(image_file_path,new_size)
+    os.makedirs(patch_files_dir_path, exist_ok=True)
+    image_array = read_tif_file(image_file_path)
+    old_shape = image_array.shape
     height, width, _ = image_array.shape
 
-    x = math.ceil(int(height) / (int(patch_size[0])))
-    y = math.ceil(int(width) / (int(patch_size[1])))
-    print("x", x)
-    print("y", y)
-    left_border = (patch_size[1] * y) - width
-    bottom_border = (patch_size[0] * x) - height
-    print(f"Left & bottom Padding: {left_border, bottom_border}")
-
-    if left_border != 0:
-        image_array = cv2.copyMakeBorder(
-            image_array, 0, 0, 0, left_border, cv2.BORDER_CONSTANT, value=(0, 0, 0)
-        )
-
-    if bottom_border != 0:
-        image_array = cv2.copyMakeBorder(
-            image_array, 0, bottom_border, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0)
-        )
-
-    # padded_img = patch_image = Image.fromarray(image_array)
-    # padded_img.save(os.path.join(padded_img_folder, f"padded.tif"))
-    # print(f"After Padding Shape : {new_shape}")
     count = 1
-    for i in range(0, height, patch_size[0]):
-        for j in range(0, width, patch_size[1]):
-            patch = image_array[i : i + patch_size[0], j : j + patch_size[1], :]
+    for i in range(0, height, patch_size):
+        for j in range(0, width, patch_size):
+            patch = image_array[i : i + patch_size, j : j + patch_size, :]
             patch_image = Image.fromarray(patch)
-            patch_image.save(os.path.join(patch_files_dir_path, f"640_{name}_{count}.png"))
+            patch_image.save(os.path.join(patch_files_dir_path, f"{name}_{i}_{j}.png"))
             count=count+1
+    return old_shape
 
 
-def unpatch_(image_file_path, old_shape, new_shape, patch_size, patch_files_dir_path):
+
+def unpatch_(input_img, image_file_path, old_shape, new_shape, patch_size, patch_files_dir_path):
+    name = os.path.splitext(os.path.basename(input_img))[0]
     old_image_height, old_image_width, o_c = old_shape
     new_image_height, new_image_width, n_c = new_shape
+
     output_image = np.zeros((new_image_height, new_image_width, n_c), dtype=np.uint8)
-    for i in range(0, new_image_height, patch_size[0]):
-        for j in range(0, new_image_width, patch_size[1]):
-            patch_file_path = os.path.join(patch_files_dir_path, f"640_{i}_{j}.tif")
+
+    for i in range(0, old_image_height, patch_size):
+        for j in range(0, old_image_width, patch_size):
+            # Construct the patch file path based on indices
+            patch_file_path = os.path.join(patch_files_dir_path, f"{name}_{i}_{j}.png")
+
             if os.path.exists(patch_file_path):
                 image = Image.open(patch_file_path)
                 image_array = np.array(image)
+
+                # Adjust indices for the upsampled image dimensions
+                i_upsampled = int(i * (new_image_height / old_image_height))
+                j_upsampled = int(j * (new_image_width / old_image_width))
+
+                # Adjust the patch size for the upsampled image
+                patch_size_upsampled = int(patch_size * (new_image_height / old_image_height))
+
+                # Correct the indexing for patch placement in the upsampled image
                 output_image[
-                    i : i + patch_size[0], j : j + patch_size[1], :
+                    i_upsampled : i_upsampled + patch_size_upsampled,
+                    j_upsampled : j_upsampled + patch_size_upsampled,
+                    :
                 ] = image_array
-    output_image = output_image[:old_image_height, :old_image_width, :]
+
     output_image = Image.fromarray(output_image)
-    output_image.save(image_file_path)
+
+    output_path = os.path.join(image_file_path, f"{name}.tif")
+    output_image.save(output_path)
+
+
 
 
 if __name__ == "__main__":
@@ -103,17 +99,17 @@ if __name__ == "__main__":
         help="Dir Path to save Patch Image",
     )
     args = parser.parse_args()
-    input_image_file_path = args.input_file_path
-    output_image_file_path = args.output_file_path
-    patch_files_dir = args.patch_images_dir
-    patch_size = (args.patch_size, args.patch_size)
-    new_size = (7680, 6080)
-    patch_(
-        input_image_file_path,
-        patch_size,
-        patch_files_dir,
-        new_size
-    )
+    # input_image_file_path = args.input_file_path
+    # output_image_file_path = args.output_file_path
+    # patch_files_dir = args.patch_images_dir
+    # patch_size = (args.patch_size, args.patch_size)
+    # new_size = (7680, 6080)
+    # patch_(
+    #     input_image_file_path,
+    #     patch_size,
+    #     patch_files_dir,
+    #     new_size
+    # )
     # unpatch_(
     #     output_image_file_path,
     #     old_shape,
